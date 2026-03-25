@@ -1,0 +1,410 @@
+import './style.css';
+import './app.css';
+
+import { GetTunnels, AddTunnel, UpdateTunnel, DeleteTunnel, StartTunnel, StopTunnel, GetStatuses } from '../wailsjs/go/main/App';
+
+// ── State ─────────────────────────────────────────
+let tunnels = [];
+let statuses = {};
+let selectedId = null;
+let statusInterval = null;
+
+// ── Init ──────────────────────────────────────────
+document.querySelector('#app').innerHTML = `
+  <div class="header">
+    <div class="header-brand">
+      <span class="header-icon" style="color:#3fb950;text-shadow:0 0 8px #3fb950;font-family:monospace;font-size:20px;">~</span>
+      TunnelDeck
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-primary btn-sm" id="btn-add">+ New Tunnel</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">Tunnels</div>
+      <div class="tunnel-list" id="tunnel-list"></div>
+    </aside>
+    <main class="main" id="main-panel"></main>
+  </div>
+
+  <!-- Add/Edit Modal -->
+  <div class="modal-overlay hidden" id="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title" id="modal-title">New Tunnel</span>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="form-id" />
+        <div class="form-group">
+          <label class="form-label">Name <span class="required">*</span></label>
+          <input class="form-input" id="form-name" placeholder="e.g. prod-postgres" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">SSH Host <span class="required">*</span></label>
+            <input class="form-input" id="form-ssh-host" placeholder="192.168.1.1" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">SSH Port</label>
+            <input class="form-input" id="form-ssh-port" type="number" value="22" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">SSH User <span class="required">*</span></label>
+          <input class="form-input" id="form-user" placeholder="ubuntu" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Auth Type</label>
+          <select class="form-select" id="form-auth-type">
+            <option value="password">Password</option>
+            <option value="key">SSH Key File</option>
+          </select>
+        </div>
+        <div class="auth-section" id="auth-password-section">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Password</label>
+            <input class="form-input" id="form-password" type="password" placeholder="••••••••" autocomplete="new-password"/>
+          </div>
+        </div>
+        <div class="auth-section hidden" id="auth-key-section">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Private Key Path</label>
+            <input class="form-input" id="form-key-path" placeholder="C:\\Users\\you\\.ssh\\id_rsa" />
+            <div class="form-hint">Absolute path to your .pem or id_rsa file</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="section-title">Port Forwarding</div>
+        <div class="form-row-3">
+          <div class="form-group">
+            <label class="form-label">Remote Host <span class="required">*</span></label>
+            <input class="form-input" id="form-remote-host" placeholder="localhost" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Remote Port <span class="required">*</span></label>
+            <input class="form-input" id="form-remote-port" type="number" placeholder="5432" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Local Port <span class="required">*</span></label>
+            <input class="form-input" id="form-local-port" type="number" placeholder="5432" />
+          </div>
+        </div>
+        <div class="form-hint">Traffic to <code style="color:var(--blue)">127.0.0.1:[local]</code> will forward to <code style="color:var(--blue)">[remote host]:[remote port]</code> via SSH</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-save">Save Tunnel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toast-container"></div>
+`;
+
+// ── Event Wiring ──────────────────────────────────
+document.getElementById('btn-add').addEventListener('click', () => openModal(null));
+document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('btn-cancel').addEventListener('click', closeModal);
+document.getElementById('btn-save').addEventListener('click', saveTunnel);
+document.getElementById('modal-overlay').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+
+document.getElementById('form-auth-type').addEventListener('change', (e) => {
+  document.getElementById('auth-password-section').classList.toggle('hidden', e.target.value === 'key');
+  document.getElementById('auth-key-section').classList.toggle('hidden', e.target.value === 'password');
+});
+
+// ── Load & Render ─────────────────────────────────
+async function loadTunnels() {
+  try {
+    tunnels = await GetTunnels() || [];
+    await refreshStatuses();
+    renderSidebar();
+    renderMain();
+  } catch (e) {
+    console.error('Failed to load tunnels:', e);
+  }
+}
+
+async function refreshStatuses() {
+  if (tunnels.length === 0) return;
+  try {
+    const list = await GetStatuses();
+    statuses = {};
+    for (const s of list) statuses[s.id] = s;
+  } catch (e) {}
+}
+
+function renderSidebar() {
+  const el = document.getElementById('tunnel-list');
+  if (tunnels.length === 0) {
+    el.innerHTML = `<div class="empty-sidebar">No tunnels yet.<br/>Click <strong>+ New Tunnel</strong><br/>to get started.</div>`;
+    return;
+  }
+  el.innerHTML = tunnels.map(t => {
+    const s = statuses[t.id] || {};
+    const dotClass = s.active ? 'on' : 'off';
+    const sel = t.id === selectedId ? 'selected' : '';
+    return `
+      <div class="tunnel-item ${sel}" data-id="${t.id}" onclick="selectTunnel('${t.id}')">
+        <div class="status-dot ${dotClass}"></div>
+        <div class="tunnel-item-info">
+          <div class="tunnel-item-name">${esc(t.name)}</div>
+          <div class="tunnel-item-sub">127.0.0.1:${t.localPort} → ${esc(t.remoteHost)}:${t.remotePort}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderMain() {
+  const panel = document.getElementById('main-panel');
+  if (!selectedId) {
+    panel.innerHTML = `
+      <div class="welcome">
+        <div class="welcome-icon" style="color:#3fb950;text-shadow:0 0 16px #3fb950;font-family:monospace;font-size:64px;opacity:1;">~</div>
+        <h2>TunnelDeck</h2>
+        <p>Select a tunnel from the sidebar or create a new one.</p>
+      </div>`;
+    return;
+  }
+  const t = tunnels.find(x => x.id === selectedId);
+  if (!t) { selectedId = null; renderMain(); return; }
+  const s = statuses[t.id] || {};
+
+  panel.innerHTML = `
+    <div class="detail">
+      <div class="detail-header">
+        <div class="detail-title-group">
+          <div class="detail-status-dot ${s.active ? 'on' : 'off'}"></div>
+          <div>
+            <div class="detail-name">${esc(t.name)}</div>
+            ${s.active ? `<div class="detail-uptime">↑ ${s.uptime || '0s'}</div>` : ''}
+          </div>
+        </div>
+        <div class="detail-actions">
+          ${s.active
+            ? `<button class="btn btn-stop" onclick="stopTunnel('${t.id}')">⏹ Stop</button>`
+            : `<button class="btn btn-primary" onclick="startTunnel('${t.id}')">▶ Start</button>`
+          }
+          <button class="btn btn-secondary" onclick="editTunnel('${t.id}')">✎ Edit</button>
+          <button class="btn btn-danger" onclick="deleteTunnel('${t.id}')">✕</button>
+        </div>
+      </div>
+
+      <div class="forward-vis">
+        <div class="forward-box">
+          <div class="forward-box-label">Local</div>
+          <div class="forward-box-value">127.0.0.1:${t.localPort}</div>
+        </div>
+        <div class="forward-arrow">→</div>
+        <div class="forward-box">
+          <div class="forward-box-label">SSH Server</div>
+          <div class="forward-box-value">${esc(t.sshHost)}:${t.sshPort}</div>
+        </div>
+        <div class="forward-arrow">→</div>
+        <div class="forward-box">
+          <div class="forward-box-label">Destination</div>
+          <div class="forward-box-value">${esc(t.remoteHost)}:${t.remotePort}</div>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <div class="card-title">SSH Connection</div>
+          <div class="card-row">
+            <span class="card-label">Host</span>
+            <span class="card-value">${esc(t.sshHost)}</span>
+          </div>
+          <div class="card-row">
+            <span class="card-label">Port</span>
+            <span class="card-value">${t.sshPort}</span>
+          </div>
+          <div class="card-row">
+            <span class="card-label">User</span>
+            <span class="card-value">${esc(t.user)}</span>
+          </div>
+          <div class="card-row">
+            <span class="card-label">Auth</span>
+            <span class="card-value"><span class="badge badge-blue">${t.authType}</span></span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Status</div>
+          <div class="card-row">
+            <span class="card-label">State</span>
+            <span class="card-value">
+              ${s.active
+                ? '<span class="badge badge-green">● Connected</span>'
+                : '<span class="badge badge-gray">○ Stopped</span>'
+              }
+            </span>
+          </div>
+          ${s.active ? `
+          <div class="card-row">
+            <span class="card-label">Uptime</span>
+            <span class="card-value">${s.uptime}</span>
+          </div>` : ''}
+          <div class="card-row">
+            <span class="card-label">Local Bind</span>
+            <span class="card-value">127.0.0.1:${t.localPort}</span>
+          </div>
+          <div class="card-row">
+            <span class="card-label">Remote Target</span>
+            <span class="card-value">${esc(t.remoteHost)}:${t.remotePort}</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Actions ───────────────────────────────────────
+window.selectTunnel = function(id) {
+  selectedId = id;
+  renderSidebar();
+  renderMain();
+};
+
+window.startTunnel = async function(id) {
+  try {
+    await StartTunnel(id);
+    await refreshStatuses();
+    renderSidebar();
+    renderMain();
+    toast('Tunnel started', 'success');
+  } catch (e) {
+    toast('Failed to start: ' + e, 'error');
+  }
+};
+
+window.stopTunnel = async function(id) {
+  try {
+    await StopTunnel(id);
+    await refreshStatuses();
+    renderSidebar();
+    renderMain();
+    toast('Tunnel stopped', 'info');
+  } catch (e) {
+    toast('Failed to stop: ' + e, 'error');
+  }
+};
+
+window.editTunnel = function(id) {
+  const t = tunnels.find(x => x.id === id);
+  if (t) openModal(t);
+};
+
+window.deleteTunnel = async function(id) {
+  const t = tunnels.find(x => x.id === id);
+  if (!t) return;
+  if (!confirm(`Delete tunnel "${t.name}"?`)) return;
+  try {
+    await DeleteTunnel(id);
+    if (selectedId === id) selectedId = null;
+    await loadTunnels();
+    toast('Tunnel deleted', 'info');
+  } catch (e) {
+    toast('Failed to delete: ' + e, 'error');
+  }
+};
+
+// ── Modal ─────────────────────────────────────────
+function openModal(tunnel) {
+  document.getElementById('modal-title').textContent = tunnel ? 'Edit Tunnel' : 'New Tunnel';
+  document.getElementById('form-id').value = tunnel?.id || '';
+  document.getElementById('form-name').value = tunnel?.name || '';
+  document.getElementById('form-ssh-host').value = tunnel?.sshHost || '';
+  document.getElementById('form-ssh-port').value = tunnel?.sshPort || 22;
+  document.getElementById('form-user').value = tunnel?.user || '';
+  document.getElementById('form-auth-type').value = tunnel?.authType || 'password';
+  document.getElementById('form-password').value = tunnel?.password || '';
+  document.getElementById('form-key-path').value = tunnel?.keyPath || '';
+  document.getElementById('form-remote-host').value = tunnel?.remoteHost || 'localhost';
+  document.getElementById('form-remote-port').value = tunnel?.remotePort || '';
+  document.getElementById('form-local-port').value = tunnel?.localPort || '';
+
+  const authType = document.getElementById('form-auth-type').value;
+  document.getElementById('auth-password-section').classList.toggle('hidden', authType === 'key');
+  document.getElementById('auth-key-section').classList.toggle('hidden', authType === 'password');
+
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  document.getElementById('form-name').focus();
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+async function saveTunnel() {
+  const id = document.getElementById('form-id').value;
+  const authType = document.getElementById('form-auth-type').value;
+
+  const cfg = {
+    id,
+    name: document.getElementById('form-name').value.trim(),
+    sshHost: document.getElementById('form-ssh-host').value.trim(),
+    sshPort: parseInt(document.getElementById('form-ssh-port').value) || 22,
+    user: document.getElementById('form-user').value.trim(),
+    authType,
+    password: authType === 'password' ? document.getElementById('form-password').value : '',
+    keyPath: authType === 'key' ? document.getElementById('form-key-path').value.trim() : '',
+    remoteHost: document.getElementById('form-remote-host').value.trim() || 'localhost',
+    remotePort: parseInt(document.getElementById('form-remote-port').value),
+    localPort: parseInt(document.getElementById('form-local-port').value),
+  };
+
+  if (!cfg.name || !cfg.sshHost || !cfg.user || !cfg.remotePort || !cfg.localPort) {
+    toast('Please fill in all required fields', 'error');
+    return;
+  }
+
+  try {
+    if (id) {
+      await UpdateTunnel(cfg);
+      toast('Tunnel updated', 'success');
+    } else {
+      const created = await AddTunnel(cfg);
+      selectedId = created.id;
+      toast('Tunnel created', 'success');
+    }
+    closeModal();
+    await loadTunnels();
+  } catch (e) {
+    toast('Save failed: ' + e, 'error');
+  }
+}
+
+// ── Toast ─────────────────────────────────────────
+function toast(msg, type = 'info') {
+  const icons = { success: '✓', error: '✕', info: 'ℹ' };
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.innerHTML = `<span>${icons[type]}</span><span>${esc(msg)}</span>`;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ── Helpers ───────────────────────────────────────
+function esc(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Boot ──────────────────────────────────────────
+loadTunnels();
+
+// Poll statuses every 3 seconds
+statusInterval = setInterval(async () => {
+  await refreshStatuses();
+  renderSidebar();
+  // Re-render main only to update uptime/status without losing scroll
+  const panel = document.getElementById('main-panel');
+  if (selectedId && panel.querySelector('.detail')) {
+    renderMain();
+  }
+}, 3000);

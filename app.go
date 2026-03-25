@@ -1,0 +1,89 @@
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/google/uuid"
+)
+
+type App struct {
+	ctx     context.Context
+	tunnels []TunnelConfig
+	manager *TunnelManager
+	store   *Store
+}
+
+func NewApp() *App {
+	store, _ := NewStore()
+	tunnels, _ := store.Load()
+	if tunnels == nil {
+		tunnels = []TunnelConfig{}
+	}
+	return &App{
+		tunnels: tunnels,
+		manager: NewTunnelManager(),
+		store:   store,
+	}
+}
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+}
+
+func (a *App) shutdown(ctx context.Context) {
+	a.manager.StopAll()
+}
+
+func (a *App) GetTunnels() []TunnelConfig {
+	return a.tunnels
+}
+
+func (a *App) AddTunnel(cfg TunnelConfig) (TunnelConfig, error) {
+	cfg.ID = uuid.New().String()
+	a.tunnels = append(a.tunnels, cfg)
+	return cfg, a.store.Save(a.tunnels)
+}
+
+func (a *App) UpdateTunnel(cfg TunnelConfig) error {
+	for i, t := range a.tunnels {
+		if t.ID == cfg.ID {
+			a.manager.Stop(cfg.ID)
+			a.tunnels[i] = cfg
+			return a.store.Save(a.tunnels)
+		}
+	}
+	return fmt.Errorf("tunnel %s not found", cfg.ID)
+}
+
+func (a *App) DeleteTunnel(id string) error {
+	a.manager.Stop(id)
+	for i, t := range a.tunnels {
+		if t.ID == id {
+			a.tunnels = append(a.tunnels[:i], a.tunnels[i+1:]...)
+			return a.store.Save(a.tunnels)
+		}
+	}
+	return fmt.Errorf("tunnel %s not found", id)
+}
+
+func (a *App) StartTunnel(id string) error {
+	for _, t := range a.tunnels {
+		if t.ID == id {
+			return a.manager.Start(t)
+		}
+	}
+	return fmt.Errorf("tunnel %s not found", id)
+}
+
+func (a *App) StopTunnel(id string) error {
+	return a.manager.Stop(id)
+}
+
+func (a *App) GetStatuses() []TunnelStatus {
+	ids := make([]string, len(a.tunnels))
+	for i, t := range a.tunnels {
+		ids[i] = t.ID
+	}
+	return a.manager.GetAllStatuses(ids)
+}

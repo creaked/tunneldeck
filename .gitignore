@@ -1,0 +1,17 @@
+build/bin
+node_modules
+frontend/dist
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Wails generated
+frontend/package.json.md5
