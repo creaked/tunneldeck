@@ -53,12 +53,29 @@ type activeTunnel struct {
 }
 
 type TunnelManager struct {
-	mu     sync.RWMutex
-	active map[string]*activeTunnel
+	mu         sync.RWMutex
+	active     map[string]*activeTunnel
+	settingsMu sync.RWMutex
+	settings   Settings
 }
 
-func NewTunnelManager() *TunnelManager {
-	return &TunnelManager{active: make(map[string]*activeTunnel)}
+func NewTunnelManager(settings Settings) *TunnelManager {
+	return &TunnelManager{
+		active:   make(map[string]*activeTunnel),
+		settings: settings,
+	}
+}
+
+func (tm *TunnelManager) UpdateSettings(s Settings) {
+	tm.settingsMu.Lock()
+	tm.settings = s
+	tm.settingsMu.Unlock()
+}
+
+func (tm *TunnelManager) getSettings() Settings {
+	tm.settingsMu.RLock()
+	defer tm.settingsMu.RUnlock()
+	return tm.settings
 }
 
 func buildAuthMethods(authType, password, keyPath string) ([]ssh.AuthMethod, error) {
@@ -167,7 +184,7 @@ func (tm *TunnelManager) Start(cfg TunnelConfig) error {
 	}
 	tm.active[cfg.ID] = at
 	go at.accept()
-	go at.monitor()
+	go at.monitor(tm, tm.getSettings().KeepaliveSeconds)
 	return nil
 }
 
@@ -179,7 +196,7 @@ func (at *activeTunnel) getClient() *ssh.Client {
 
 // monitor sends SSH keepalives every 15 seconds and reconnects on failure.
 // It is the sole owner of the SSH client lifecycle after Start() returns.
-func (at *activeTunnel) monitor() {
+func (at *activeTunnel) monitor(tm *TunnelManager, keepaliveSeconds int) {
 	defer func() {
 		at.clientMu.Lock()
 		if at.client != nil {
@@ -191,7 +208,7 @@ func (at *activeTunnel) monitor() {
 		at.clientMu.Unlock()
 	}()
 
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(time.Duration(keepaliveSeconds) * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -204,7 +221,7 @@ func (at *activeTunnel) monitor() {
 			at.clientMu.RUnlock()
 
 			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-			if err != nil {
+			if err != nil && tm.getSettings().AutoReconnect {
 				at.reconnect()
 			}
 		}

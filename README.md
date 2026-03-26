@@ -126,7 +126,7 @@ Tunnels are stored as a plain JSON file at:
 - [x] SSH jump host / bastion support
 - [x] Cross-platform builds & releases (GitHub Actions)
 - [x] Auto-reconnect on tunnel drop
-- [ ] Settings menu
+- [x] Settings menu
 - [ ] Auto-start tunnel on launch
 - [ ] Import tunnels from `~/.ssh/config`
 - [ ] System tray — minimize to tray while tunnels keep running

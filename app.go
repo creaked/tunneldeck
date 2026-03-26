@@ -8,10 +8,11 @@ import (
 )
 
 type App struct {
-	ctx     context.Context
-	tunnels []TunnelConfig
-	manager *TunnelManager
-	store   *Store
+	ctx      context.Context
+	tunnels  []TunnelConfig
+	manager  *TunnelManager
+	store    *Store
+	settings Settings
 }
 
 func NewApp() *App {
@@ -20,10 +21,12 @@ func NewApp() *App {
 	if tunnels == nil {
 		tunnels = []TunnelConfig{}
 	}
+	settings, _ := store.LoadSettings()
 	return &App{
-		tunnels: tunnels,
-		manager: NewTunnelManager(),
-		store:   store,
+		tunnels:  tunnels,
+		manager:  NewTunnelManager(settings),
+		store:    store,
+		settings: settings,
 	}
 }
 
@@ -86,4 +89,18 @@ func (a *App) GetStatuses() []TunnelStatus {
 		ids[i] = t.ID
 	}
 	return a.manager.GetAllStatuses(ids)
+}
+
+func (a *App) GetSettings() Settings {
+	return a.settings
+}
+
+func (a *App) SaveSettings(s Settings) error {
+	if s.StartOnBoot != a.settings.StartOnBoot {
+		// Best-effort — don't block the save if OS registration fails.
+		_ = setStartOnBoot(s.StartOnBoot)
+	}
+	a.settings = s
+	a.manager.UpdateSettings(s)
+	return a.store.SaveSettings(s)
 }

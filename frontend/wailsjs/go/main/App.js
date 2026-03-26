@@ -10,12 +10,20 @@ export function DeleteTunnel(arg1) {
   return window['go']['main']['App']['DeleteTunnel'](arg1);
 }
 
+export function GetSettings() {
+  return window['go']['main']['App']['GetSettings']();
+}
+
 export function GetStatuses() {
   return window['go']['main']['App']['GetStatuses']();
 }
 
 export function GetTunnels() {
   return window['go']['main']['App']['GetTunnels']();
+}
+
+export function SaveSettings(arg1) {
+  return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
 export function StartTunnel(arg1) {

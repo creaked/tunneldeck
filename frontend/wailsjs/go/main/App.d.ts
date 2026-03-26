@@ -6,9 +6,13 @@ export function AddTunnel(arg1:main.TunnelConfig):Promise<main.TunnelConfig>;
 
 export function DeleteTunnel(arg1:string):Promise<void>;
 
+export function GetSettings():Promise<main.Settings>;
+
 export function GetStatuses():Promise<Array<main.TunnelStatus>>;
 
 export function GetTunnels():Promise<Array<main.TunnelConfig>>;
+
+export function SaveSettings(arg1:main.Settings):Promise<void>;
 
 export function StartTunnel(arg1:string):Promise<void>;
 

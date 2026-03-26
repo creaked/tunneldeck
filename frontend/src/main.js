@@ -1,13 +1,15 @@
 import './style.css';
 import './app.css';
 
-import { GetTunnels, AddTunnel, UpdateTunnel, DeleteTunnel, StartTunnel, StopTunnel, GetStatuses } from '../wailsjs/go/main/App';
+import { GetTunnels, AddTunnel, UpdateTunnel, DeleteTunnel, StartTunnel, StopTunnel, GetStatuses, GetSettings, SaveSettings } from '../wailsjs/go/main/App';
 
 // ── State ─────────────────────────────────────────
 let tunnels = [];
 let statuses = {};
 let selectedId = null;
 let statusInterval = null;
+let currentSettings = {};
+let previewTheme = null;
 
 // ── Init ──────────────────────────────────────────
 document.querySelector('#app').innerHTML = `
@@ -17,6 +19,7 @@ document.querySelector('#app').innerHTML = `
       TunnelDeck
     </div>
     <div class="header-actions">
+      <button class="btn btn-secondary btn-sm" id="btn-settings">⚙ Settings</button>
       <button class="btn btn-primary btn-sm" id="btn-add">+ New Tunnel</button>
     </div>
   </div>
@@ -147,17 +150,116 @@ document.querySelector('#app').innerHTML = `
     </div>
   </div>
 
+  <!-- Settings Modal -->
+  <div class="modal-overlay hidden" id="settings-overlay">
+    <div class="modal settings-modal">
+      <div class="modal-header">
+        <span class="modal-title">Settings</span>
+        <button class="modal-close" id="settings-close">✕</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="settings-section-title">Behaviour</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Auto-reconnect</div>
+            <div class="settings-row-desc">Automatically reconnect tunnels when the connection drops</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="s-auto-reconnect" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="settings-row" id="s-keepalive-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Keepalive interval</div>
+            <div class="settings-row-desc">How often to ping the connection — takes effect on next tunnel start</div>
+          </div>
+          <div class="settings-row-control">
+            <input class="form-input" id="s-keepalive" type="number" min="5" max="300" style="width:64px;text-align:center" />
+            <span class="settings-unit">sec</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Launch at login</div>
+            <div class="settings-row-desc">Start TunnelDeck automatically when you log in</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="s-start-on-boot" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+        <div class="settings-section-title">Appearance</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Colour scheme</div>
+            <div class="settings-row-desc">Choose your preferred theme</div>
+          </div>
+          <div class="theme-picker" id="theme-picker">
+            <button class="theme-opt" data-theme="dark">Dark</button>
+            <button class="theme-opt" data-theme="system">System</button>
+            <button class="theme-opt" data-theme="light">Light</button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="settings-section-title">Connection Defaults</div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">SSH port</div>
+          </div>
+          <div class="settings-row-control">
+            <input class="form-input" id="s-default-port" type="number" style="width:72px;text-align:center" />
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">SSH user</div>
+          </div>
+          <div class="settings-row-control">
+            <input class="form-input" id="s-default-user" placeholder="ubuntu" style="width:160px" />
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-label">Default key path</div>
+            <div class="settings-row-desc">Pre-fills the key path when creating a new tunnel</div>
+          </div>
+          <div class="settings-row-control">
+            <input class="form-input" id="s-default-key" placeholder="~/.ssh/id_rsa" style="width:200px" />
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="s-cancel">Cancel</button>
+        <button class="btn btn-primary" id="s-save">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast container -->
   <div class="toast-container" id="toast-container"></div>
 `;
 
 // ── Event Wiring ──────────────────────────────────
 document.getElementById('btn-add').addEventListener('click', () => openModal(null));
+document.getElementById('btn-settings').addEventListener('click', openSettings);
 document.getElementById('modal-close').addEventListener('click', closeModal);
 document.getElementById('btn-cancel').addEventListener('click', closeModal);
 document.getElementById('btn-save').addEventListener('click', saveTunnel);
 document.getElementById('modal-overlay').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+
+document.getElementById('settings-close').addEventListener('click', closeSettings);
+document.getElementById('s-cancel').addEventListener('click', closeSettings);
+document.getElementById('s-save').addEventListener('click', saveSettings);
+document.getElementById('settings-overlay').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('settings-overlay')) closeSettings();
 });
 
 document.getElementById('form-auth-type').addEventListener('change', (e) => {
@@ -173,6 +275,76 @@ document.getElementById('form-bastion-auth-type').addEventListener('change', (e)
   document.getElementById('bastion-auth-password-section').classList.toggle('hidden', e.target.value === 'key');
   document.getElementById('bastion-auth-key-section').classList.toggle('hidden', e.target.value === 'password');
 });
+
+document.getElementById('s-auto-reconnect').addEventListener('change', (e) => {
+  document.getElementById('s-keepalive-row').classList.toggle('dimmed', !e.target.checked);
+});
+
+document.querySelectorAll('.theme-opt').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.theme-opt').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    previewTheme = btn.dataset.theme;
+    applyTheme(previewTheme);
+  });
+});
+
+// ── Theme ──────────────────────────────────────────
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme || 'dark');
+}
+
+// ── Settings ──────────────────────────────────────
+function openSettings() {
+  const s = currentSettings;
+  document.getElementById('s-auto-reconnect').checked = s.autoReconnect !== false;
+  document.getElementById('s-keepalive').value = s.keepaliveSeconds || 15;
+  document.getElementById('s-start-on-boot').checked = !!s.startOnBoot;
+  document.getElementById('s-default-port').value = s.defaultSshPort || 22;
+  document.getElementById('s-default-user').value = s.defaultSshUser || '';
+  document.getElementById('s-default-key').value = s.defaultKeyPath || '';
+
+  const theme = s.theme || 'dark';
+  document.querySelectorAll('.theme-opt').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.theme === theme);
+  });
+
+  document.getElementById('s-keepalive-row').classList.toggle('dimmed', s.autoReconnect === false);
+
+  previewTheme = null;
+  document.getElementById('settings-overlay').classList.remove('hidden');
+}
+
+function closeSettings() {
+  if (previewTheme !== null) {
+    applyTheme(currentSettings.theme || 'dark');
+    previewTheme = null;
+  }
+  document.getElementById('settings-overlay').classList.add('hidden');
+}
+
+async function saveSettings() {
+  const theme = document.querySelector('.theme-opt.active')?.dataset.theme || 'dark';
+  const s = {
+    autoReconnect: document.getElementById('s-auto-reconnect').checked,
+    keepaliveSeconds: parseInt(document.getElementById('s-keepalive').value) || 15,
+    startOnBoot: document.getElementById('s-start-on-boot').checked,
+    theme,
+    defaultSshPort: parseInt(document.getElementById('s-default-port').value) || 22,
+    defaultSshUser: document.getElementById('s-default-user').value.trim(),
+    defaultKeyPath: document.getElementById('s-default-key').value.trim(),
+  };
+  try {
+    await SaveSettings(s);
+    currentSettings = s;
+    applyTheme(s.theme);
+    previewTheme = null;
+    document.getElementById('settings-overlay').classList.add('hidden');
+    toast('Settings saved', 'success');
+  } catch (e) {
+    toast('Failed to save settings: ' + e, 'error');
+  }
+}
 
 // ── Load & Render ─────────────────────────────────
 async function loadTunnels() {
@@ -390,18 +562,24 @@ function openModal(tunnel) {
   document.getElementById('form-id').value = tunnel?.id || '';
   document.getElementById('form-name').value = tunnel?.name || '';
   document.getElementById('form-ssh-host').value = tunnel?.sshHost || '';
-  document.getElementById('form-ssh-port').value = tunnel?.sshPort || 22;
-  document.getElementById('form-user').value = tunnel?.user || '';
-  document.getElementById('form-auth-type').value = tunnel?.authType || 'password';
+
+  // For new tunnels, pre-fill connection defaults from settings
+  const isNew = !tunnel;
+  document.getElementById('form-ssh-port').value = tunnel?.sshPort ?? (currentSettings.defaultSshPort || 22);
+  document.getElementById('form-user').value = tunnel?.user ?? (isNew ? (currentSettings.defaultSshUser || '') : '');
+
+  const hasDefaultKey = isNew && currentSettings.defaultKeyPath;
+  const authType = tunnel?.authType || (hasDefaultKey ? 'key' : 'password');
+  document.getElementById('form-auth-type').value = authType;
   document.getElementById('form-password').value = tunnel?.password || '';
-  document.getElementById('form-key-path').value = tunnel?.keyPath || '';
+  document.getElementById('form-key-path').value = tunnel?.keyPath ?? (isNew ? (currentSettings.defaultKeyPath || '') : '');
+
+  document.getElementById('auth-password-section').classList.toggle('hidden', authType === 'key');
+  document.getElementById('auth-key-section').classList.toggle('hidden', authType === 'password');
+
   document.getElementById('form-remote-host').value = tunnel?.remoteHost || 'localhost';
   document.getElementById('form-remote-port').value = tunnel?.remotePort || '';
   document.getElementById('form-local-port').value = tunnel?.localPort || '';
-
-  const authType = document.getElementById('form-auth-type').value;
-  document.getElementById('auth-password-section').classList.toggle('hidden', authType === 'key');
-  document.getElementById('auth-key-section').classList.toggle('hidden', authType === 'password');
 
   // Bastion fields
   const useBastion = !!tunnel?.bastionHost;
@@ -493,15 +671,23 @@ function esc(str) {
 }
 
 // ── Boot ──────────────────────────────────────────
-loadTunnels();
-
-// Poll statuses every 3 seconds
-statusInterval = setInterval(async () => {
-  await refreshStatuses();
-  renderSidebar();
-  // Re-render main only to update uptime/status without losing scroll
-  const panel = document.getElementById('main-panel');
-  if (selectedId && panel.querySelector('.detail')) {
-    renderMain();
+async function init() {
+  try {
+    currentSettings = await GetSettings();
+  } catch (e) {
+    currentSettings = { theme: 'dark', autoReconnect: true, keepaliveSeconds: 15, defaultSshPort: 22 };
   }
-}, 3000);
+  applyTheme(currentSettings.theme);
+  await loadTunnels();
+
+  statusInterval = setInterval(async () => {
+    await refreshStatuses();
+    renderSidebar();
+    const panel = document.getElementById('main-panel');
+    if (selectedId && panel.querySelector('.detail')) {
+      renderMain();
+    }
+  }, 3000);
+}
+
+init();
