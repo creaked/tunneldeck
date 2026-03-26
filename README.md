@@ -122,14 +122,16 @@ Tunnels are stored as a plain JSON file at:
 
 ## Roadmap
 
-- [x] Encrypt stored credentials (Windows DPAPI / OS keychain)
+- [x] Encrypted credential storage (Windows DPAPI / macOS Keychain / Linux AES-GCM)
 - [x] SSH jump host / bastion support
+- [x] Cross-platform builds & releases (GitHub Actions)
 - [ ] Auto-reconnect on tunnel drop
+- [ ] Settings menu
+- [ ] Auto-start tunnel on launch
 - [ ] Import tunnels from `~/.ssh/config`
-- [ ] System tray support — minimize to tray, tunnels keep running
+- [ ] System tray — minimize to tray while tunnels keep running
 - [ ] Tunnel groups / tags
-- [ ] Traffic stats (bytes transferred)
-- [ ] Windows, macOS, and Linux builds + installers (goreleaser)
+- [ ] Traffic stats (bytes in/out per tunnel)
 
 ---
 
