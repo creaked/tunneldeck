@@ -123,13 +123,13 @@ Tunnels are stored as a plain JSON file at:
 ## Roadmap
 
 - [x] Encrypt stored credentials (Windows DPAPI / OS keychain)
-- [ ] SSH jump host / bastion support
+- [x] SSH jump host / bastion support
 - [ ] Auto-reconnect on tunnel drop
 - [ ] Import tunnels from `~/.ssh/config`
 - [ ] System tray support — minimize to tray, tunnels keep running
 - [ ] Tunnel groups / tags
 - [ ] Traffic stats (bytes transferred)
-- [ ] macOS & Linux builds + installers
+- [ ] Windows, macOS, and Linux builds + installers (goreleaser)
 
 ---
 

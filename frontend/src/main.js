@@ -79,6 +79,50 @@ document.querySelector('#app').innerHTML = `
         </div>
 
         <div class="divider"></div>
+        <label class="toggle-switch" style="margin-bottom:0">
+          <input type="checkbox" id="form-use-bastion" />
+          <span class="toggle-track"></span>
+          Jump Host / Bastion
+        </label>
+        <div id="bastion-section" class="hidden" style="margin-top:12px">
+          <div class="auth-section" style="display:flex;flex-direction:column;gap:12px">
+            <div class="form-row" style="margin-bottom:0">
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">Bastion Host <span class="required">*</span></label>
+                <input class="form-input" id="form-bastion-host" placeholder="bastion.example.com" />
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">Bastion Port</label>
+                <input class="form-input" id="form-bastion-port" type="number" value="22" />
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Bastion User <span class="required">*</span></label>
+              <input class="form-input" id="form-bastion-user" placeholder="ec2-user" />
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Bastion Auth Type</label>
+              <select class="form-select" id="form-bastion-auth-type">
+                <option value="password">Password</option>
+                <option value="key">SSH Key File</option>
+              </select>
+            </div>
+            <div id="bastion-auth-password-section">
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">Bastion Password</label>
+                <input class="form-input" id="form-bastion-password" type="password" placeholder="••••••••" autocomplete="new-password"/>
+              </div>
+            </div>
+            <div id="bastion-auth-key-section" class="hidden">
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">Bastion Key Path</label>
+                <input class="form-input" id="form-bastion-key-path" placeholder="C:\\Users\\you\\.ssh\\id_rsa" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
         <div class="section-title">Port Forwarding</div>
         <div class="form-row-3">
           <div class="form-group">
@@ -119,6 +163,15 @@ document.getElementById('modal-overlay').addEventListener('click', (e) => {
 document.getElementById('form-auth-type').addEventListener('change', (e) => {
   document.getElementById('auth-password-section').classList.toggle('hidden', e.target.value === 'key');
   document.getElementById('auth-key-section').classList.toggle('hidden', e.target.value === 'password');
+});
+
+document.getElementById('form-use-bastion').addEventListener('change', (e) => {
+  document.getElementById('bastion-section').classList.toggle('hidden', !e.target.checked);
+});
+
+document.getElementById('form-bastion-auth-type').addEventListener('change', (e) => {
+  document.getElementById('bastion-auth-password-section').classList.toggle('hidden', e.target.value === 'key');
+  document.getElementById('bastion-auth-key-section').classList.toggle('hidden', e.target.value === 'password');
 });
 
 // ── Load & Render ─────────────────────────────────
@@ -178,6 +231,13 @@ function renderMain() {
   if (!t) { selectedId = null; renderMain(); return; }
   const s = statuses[t.id] || {};
 
+  const bastionHop = t.bastionHost ? `
+        <div class="forward-box">
+          <div class="forward-box-label">Bastion</div>
+          <div class="forward-box-value">${esc(t.bastionHost)}:${t.bastionPort || 22}</div>
+        </div>
+        <div class="forward-arrow">→</div>` : '';
+
   panel.innerHTML = `
     <div class="detail">
       <div class="detail-header">
@@ -204,6 +264,7 @@ function renderMain() {
           <div class="forward-box-value">127.0.0.1:${t.localPort}</div>
         </div>
         <div class="forward-arrow">→</div>
+        ${bastionHop}
         <div class="forward-box">
           <div class="forward-box-label">SSH Server</div>
           <div class="forward-box-value">${esc(t.sshHost)}:${t.sshPort}</div>
@@ -234,6 +295,11 @@ function renderMain() {
             <span class="card-label">Auth</span>
             <span class="card-value"><span class="badge badge-blue">${t.authType}</span></span>
           </div>
+          ${t.bastionHost ? `
+          <div class="card-row">
+            <span class="card-label">Bastion</span>
+            <span class="card-value">${esc(t.bastionUser)}@${esc(t.bastionHost)}:${t.bastionPort || 22}</span>
+          </div>` : ''}
         </div>
         <div class="card">
           <div class="card-title">Status</div>
@@ -333,6 +399,21 @@ function openModal(tunnel) {
   document.getElementById('auth-password-section').classList.toggle('hidden', authType === 'key');
   document.getElementById('auth-key-section').classList.toggle('hidden', authType === 'password');
 
+  // Bastion fields
+  const useBastion = !!tunnel?.bastionHost;
+  document.getElementById('form-use-bastion').checked = useBastion;
+  document.getElementById('bastion-section').classList.toggle('hidden', !useBastion);
+  document.getElementById('form-bastion-host').value = tunnel?.bastionHost || '';
+  document.getElementById('form-bastion-port').value = tunnel?.bastionPort || 22;
+  document.getElementById('form-bastion-user').value = tunnel?.bastionUser || '';
+  document.getElementById('form-bastion-auth-type').value = tunnel?.bastionAuthType || 'password';
+  document.getElementById('form-bastion-password').value = tunnel?.bastionPassword || '';
+  document.getElementById('form-bastion-key-path').value = tunnel?.bastionKeyPath || '';
+
+  const bastionAuthType = document.getElementById('form-bastion-auth-type').value;
+  document.getElementById('bastion-auth-password-section').classList.toggle('hidden', bastionAuthType === 'key');
+  document.getElementById('bastion-auth-key-section').classList.toggle('hidden', bastionAuthType === 'password');
+
   document.getElementById('modal-overlay').classList.remove('hidden');
   document.getElementById('form-name').focus();
 }
@@ -344,6 +425,8 @@ function closeModal() {
 async function saveTunnel() {
   const id = document.getElementById('form-id').value;
   const authType = document.getElementById('form-auth-type').value;
+  const useBastion = document.getElementById('form-use-bastion').checked;
+  const bastionAuthType = document.getElementById('form-bastion-auth-type').value;
 
   const cfg = {
     id,
@@ -357,10 +440,20 @@ async function saveTunnel() {
     remoteHost: document.getElementById('form-remote-host').value.trim() || 'localhost',
     remotePort: parseInt(document.getElementById('form-remote-port').value),
     localPort: parseInt(document.getElementById('form-local-port').value),
+    bastionHost: useBastion ? document.getElementById('form-bastion-host').value.trim() : '',
+    bastionPort: useBastion ? parseInt(document.getElementById('form-bastion-port').value) || 22 : 0,
+    bastionUser: useBastion ? document.getElementById('form-bastion-user').value.trim() : '',
+    bastionAuthType: useBastion ? bastionAuthType : '',
+    bastionPassword: useBastion && bastionAuthType === 'password' ? document.getElementById('form-bastion-password').value : '',
+    bastionKeyPath: useBastion && bastionAuthType === 'key' ? document.getElementById('form-bastion-key-path').value.trim() : '',
   };
 
   if (!cfg.name || !cfg.sshHost || !cfg.user || !cfg.remotePort || !cfg.localPort) {
     toast('Please fill in all required fields', 'error');
+    return;
+  }
+  if (useBastion && (!cfg.bastionHost || !cfg.bastionUser)) {
+    toast('Please fill in bastion host and user', 'error');
     return;
   }
 

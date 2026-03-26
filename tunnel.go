@@ -23,6 +23,13 @@ type TunnelConfig struct {
 	LocalPort  int    `json:"localPort"`
 	RemoteHost string `json:"remoteHost"`
 	RemotePort int    `json:"remotePort"`
+	// Jump host / bastion (all optional)
+	BastionHost     string `json:"bastionHost,omitempty"`
+	BastionPort     int    `json:"bastionPort,omitempty"`
+	BastionUser     string `json:"bastionUser,omitempty"`
+	BastionAuthType string `json:"bastionAuthType,omitempty"`
+	BastionPassword string `json:"bastionPassword,omitempty"`
+	BastionKeyPath  string `json:"bastionKeyPath,omitempty"`
 }
 
 type TunnelStatus struct {
@@ -33,11 +40,12 @@ type TunnelStatus struct {
 }
 
 type activeTunnel struct {
-	config    TunnelConfig
-	client    *ssh.Client
-	listener  net.Listener
-	startTime time.Time
-	done      chan struct{}
+	config        TunnelConfig
+	client        *ssh.Client
+	bastionClient *ssh.Client
+	listener      net.Listener
+	startTime     time.Time
+	done          chan struct{}
 }
 
 type TunnelManager struct {
@@ -49,6 +57,21 @@ func NewTunnelManager() *TunnelManager {
 	return &TunnelManager{active: make(map[string]*activeTunnel)}
 }
 
+func buildAuthMethods(authType, password, keyPath string) ([]ssh.AuthMethod, error) {
+	if authType == "key" {
+		keyBytes, err := os.ReadFile(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read key file: %w", err)
+		}
+		signer, err := ssh.ParsePrivateKey(keyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key: %w", err)
+		}
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+	}
+	return []ssh.AuthMethod{ssh.Password(password)}, nil
+}
+
 func (tm *TunnelManager) Start(cfg TunnelConfig) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -57,19 +80,9 @@ func (tm *TunnelManager) Start(cfg TunnelConfig) error {
 		return fmt.Errorf("tunnel %s is already running", cfg.ID)
 	}
 
-	var authMethods []ssh.AuthMethod
-	if cfg.AuthType == "key" {
-		keyBytes, err := os.ReadFile(cfg.KeyPath)
-		if err != nil {
-			return fmt.Errorf("failed to read key file: %w", err)
-		}
-		signer, err := ssh.ParsePrivateKey(keyBytes)
-		if err != nil {
-			return fmt.Errorf("failed to parse private key: %w", err)
-		}
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
-	} else {
-		authMethods = append(authMethods, ssh.Password(cfg.Password))
+	authMethods, err := buildAuthMethods(cfg.AuthType, cfg.Password, cfg.KeyPath)
+	if err != nil {
+		return err
 	}
 
 	sshConfig := &ssh.ClientConfig{
@@ -80,24 +93,66 @@ func (tm *TunnelManager) Start(cfg TunnelConfig) error {
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.SSHHost, cfg.SSHPort)
-	client, err := ssh.Dial("tcp", addr, sshConfig)
-	if err != nil {
-		return fmt.Errorf("SSH dial failed: %w", err)
+
+	var client *ssh.Client
+	var bastionClient *ssh.Client
+
+	if cfg.BastionHost != "" {
+		bastionPort := cfg.BastionPort
+		if bastionPort == 0 {
+			bastionPort = 22
+		}
+		bastionAuth, berr := buildAuthMethods(cfg.BastionAuthType, cfg.BastionPassword, cfg.BastionKeyPath)
+		if berr != nil {
+			return berr
+		}
+		bastionCfg := &ssh.ClientConfig{
+			User:            cfg.BastionUser,
+			Auth:            bastionAuth,
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			Timeout:         10 * time.Second,
+		}
+		bastionAddr := fmt.Sprintf("%s:%d", cfg.BastionHost, bastionPort)
+		bastionClient, berr = ssh.Dial("tcp", bastionAddr, bastionCfg)
+		if berr != nil {
+			return fmt.Errorf("bastion dial failed: %w", berr)
+		}
+		conn, berr := bastionClient.Dial("tcp", addr)
+		if berr != nil {
+			bastionClient.Close()
+			return fmt.Errorf("bastion to SSH host failed: %w", berr)
+		}
+		ncc, chans, reqs, berr := ssh.NewClientConn(conn, addr, sshConfig)
+		if berr != nil {
+			conn.Close()
+			bastionClient.Close()
+			return fmt.Errorf("SSH handshake via bastion failed: %w", berr)
+		}
+		client = ssh.NewClient(ncc, chans, reqs)
+	} else {
+		client, err = ssh.Dial("tcp", addr, sshConfig)
+		if err != nil {
+			return fmt.Errorf("SSH dial failed: %w", err)
+		}
 	}
 
 	localAddr := fmt.Sprintf("127.0.0.1:%d", cfg.LocalPort)
 	listener, err := net.Listen("tcp", localAddr)
 	if err != nil {
 		client.Close()
+		if bastionClient != nil {
+			bastionClient.Close()
+		}
 		return fmt.Errorf("local listen failed on port %d: %w", cfg.LocalPort, err)
 	}
 
 	at := &activeTunnel{
-		config:    cfg,
-		client:    client,
-		listener:  listener,
-		startTime: time.Now(),
-		done:      make(chan struct{}),
+		config:        cfg,
+		client:        client,
+		bastionClient: bastionClient,
+		listener:      listener,
+		startTime:     time.Now(),
+		done:          make(chan struct{}),
 	}
 	tm.active[cfg.ID] = at
 	go at.accept()
@@ -108,6 +163,9 @@ func (at *activeTunnel) accept() {
 	defer func() {
 		at.listener.Close()
 		at.client.Close()
+		if at.bastionClient != nil {
+			at.bastionClient.Close()
+		}
 	}()
 	for {
 		conn, err := at.listener.Accept()
@@ -146,6 +204,9 @@ func (tm *TunnelManager) Stop(id string) error {
 	close(at.done)
 	at.listener.Close()
 	at.client.Close()
+	if at.bastionClient != nil {
+		at.bastionClient.Close()
+	}
 	delete(tm.active, id)
 	return nil
 }
@@ -186,6 +247,9 @@ func (tm *TunnelManager) StopAll() {
 		close(at.done)
 		at.listener.Close()
 		at.client.Close()
+		if at.bastionClient != nil {
+			at.bastionClient.Close()
+		}
 		delete(tm.active, id)
 	}
 }

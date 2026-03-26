@@ -12,6 +12,12 @@ export namespace main {
 	    localPort: number;
 	    remoteHost: string;
 	    remotePort: number;
+	    bastionHost?: string;
+	    bastionPort?: number;
+	    bastionUser?: string;
+	    bastionAuthType?: string;
+	    bastionPassword?: string;
+	    bastionKeyPath?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TunnelConfig(source);
@@ -30,6 +36,12 @@ export namespace main {
 	        this.localPort = source["localPort"];
 	        this.remoteHost = source["remoteHost"];
 	        this.remotePort = source["remotePort"];
+	        this.bastionHost = source["bastionHost"];
+	        this.bastionPort = source["bastionPort"];
+	        this.bastionUser = source["bastionUser"];
+	        this.bastionAuthType = source["bastionAuthType"];
+	        this.bastionPassword = source["bastionPassword"];
+	        this.bastionKeyPath = source["bastionKeyPath"];
 	    }
 	}
 	export class TunnelStatus {

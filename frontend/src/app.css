@@ -495,7 +495,56 @@ body {
 .toast-info { background: var(--bg3); border: 1px solid var(--border); color: var(--text2); }
 
 /* ── Misc ────────────────────────────────────────── */
+.hidden { display: none !important; }
+
 .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+/* ── Toggle switch ───────────────────────────────── */
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text2);
+}
+
+.toggle-switch input[type="checkbox"] { display: none; }
+
+.toggle-track {
+  position: relative;
+  width: 30px;
+  height: 17px;
+  background: var(--bg4);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  flex-shrink: 0;
+  transition: background 0.18s, border-color 0.18s;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  background: var(--text3);
+  border-radius: 50%;
+  transition: transform 0.18s, background 0.18s;
+}
+
+.toggle-switch input:checked + .toggle-track {
+  background: var(--blue-dim);
+  border-color: var(--blue);
+}
+
+.toggle-switch input:checked + .toggle-track::after {
+  transform: translateX(13px);
+  background: var(--blue);
+}
 
 .section-title {
   font-size: 11px;
