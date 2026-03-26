@@ -127,7 +127,7 @@ Tunnels are stored as a plain JSON file at:
 - [x] Cross-platform builds & releases (GitHub Actions)
 - [x] Auto-reconnect on tunnel drop
 - [x] Settings menu
-- [ ] Auto-start tunnel on launch
+- [x] Auto-start tunnel on launch
 - [ ] Import tunnels from `~/.ssh/config`
 - [ ] System tray — minimize to tray while tunnels keep running
 - [ ] Tunnel groups / tags

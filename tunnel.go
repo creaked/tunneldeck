@@ -23,6 +23,7 @@ type TunnelConfig struct {
 	LocalPort  int    `json:"localPort"`
 	RemoteHost string `json:"remoteHost"`
 	RemotePort int    `json:"remotePort"`
+	AutoStart  bool   `json:"autoStart"`
 	// Jump host / bastion (all optional)
 	BastionHost     string `json:"bastionHost,omitempty"`
 	BastionPort     int    `json:"bastionPort,omitempty"`

@@ -26,6 +26,7 @@ type diskTunnel struct {
 	LocalPort         int    `json:"localPort"`
 	RemoteHost        string `json:"remoteHost"`
 	RemotePort        int    `json:"remotePort"`
+	AutoStart         bool   `json:"autoStart"`
 	// Jump host / bastion
 	BastionHost              string `json:"bastionHost,omitempty"`
 	BastionPort              int    `json:"bastionPort,omitempty"`
@@ -79,6 +80,7 @@ func (s *Store) Load() ([]TunnelConfig, error) {
 			LocalPort:       dt.LocalPort,
 			RemoteHost:      dt.RemoteHost,
 			RemotePort:      dt.RemotePort,
+			AutoStart:       dt.AutoStart,
 			BastionHost:     dt.BastionHost,
 			BastionPort:     dt.BastionPort,
 			BastionUser:     dt.BastionUser,
@@ -132,6 +134,7 @@ func (s *Store) Save(tunnels []TunnelConfig) error {
 			LocalPort:       tc.LocalPort,
 			RemoteHost:      tc.RemoteHost,
 			RemotePort:      tc.RemotePort,
+			AutoStart:       tc.AutoStart,
 			BastionHost:     tc.BastionHost,
 			BastionPort:     tc.BastionPort,
 			BastionUser:     tc.BastionUser,

@@ -142,6 +142,13 @@ document.querySelector('#app').innerHTML = `
           </div>
         </div>
         <div class="form-hint">Traffic to <code style="color:var(--blue)">127.0.0.1:[local]</code> will forward to <code style="color:var(--blue)">[remote host]:[remote port]</code> via SSH</div>
+
+        <div class="divider"></div>
+        <label class="toggle-switch" style="margin-bottom:0">
+          <input type="checkbox" id="form-auto-start" />
+          <span class="toggle-track"></span>
+          Auto-start on launch
+        </label>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-cancel">Cancel</button>
@@ -596,6 +603,8 @@ function openModal(tunnel) {
   document.getElementById('bastion-auth-password-section').classList.toggle('hidden', bastionAuthType === 'key');
   document.getElementById('bastion-auth-key-section').classList.toggle('hidden', bastionAuthType === 'password');
 
+  document.getElementById('form-auto-start').checked = !!tunnel?.autoStart;
+
   document.getElementById('modal-overlay').classList.remove('hidden');
   document.getElementById('form-name').focus();
 }
@@ -622,6 +631,7 @@ async function saveTunnel() {
     remoteHost: document.getElementById('form-remote-host').value.trim() || 'localhost',
     remotePort: parseInt(document.getElementById('form-remote-port').value),
     localPort: parseInt(document.getElementById('form-local-port').value),
+    autoStart: document.getElementById('form-auto-start').checked,
     bastionHost: useBastion ? document.getElementById('form-bastion-host').value.trim() : '',
     bastionPort: useBastion ? parseInt(document.getElementById('form-bastion-port').value) || 22 : 0,
     bastionUser: useBastion ? document.getElementById('form-bastion-user').value.trim() : '',

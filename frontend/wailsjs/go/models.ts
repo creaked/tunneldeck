@@ -36,6 +36,7 @@ export namespace main {
 	    localPort: number;
 	    remoteHost: string;
 	    remotePort: number;
+	    autoStart: boolean;
 	    bastionHost?: string;
 	    bastionPort?: number;
 	    bastionUser?: string;
@@ -60,6 +61,7 @@ export namespace main {
 	        this.localPort = source["localPort"];
 	        this.remoteHost = source["remoteHost"];
 	        this.remotePort = source["remotePort"];
+	        this.autoStart = source["autoStart"];
 	        this.bastionHost = source["bastionHost"];
 	        this.bastionPort = source["bastionPort"];
 	        this.bastionUser = source["bastionUser"];

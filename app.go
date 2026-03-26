@@ -32,6 +32,11 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	for _, t := range a.tunnels {
+		if t.AutoStart {
+			_ = a.manager.Start(t)
+		}
+	}
 }
 
 func (a *App) shutdown(ctx context.Context) {
