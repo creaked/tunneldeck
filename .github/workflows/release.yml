@@ -27,7 +27,7 @@ jobs:
           - os: ubuntu-22.04
             platform: linux/amd64
             artifact_name: tunneldeck-linux-amd64
-            build_output: build/bin/tunneldeck
+            build_output: build/bin/tunneldeck-linux-amd64
 
     runs-on: ${{ matrix.os }}
 
