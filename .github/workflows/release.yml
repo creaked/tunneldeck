@@ -17,7 +17,7 @@ jobs:
           - os: windows-latest
             platform: windows/amd64
             artifact_name: tunneldeck-windows-amd64.exe
-            build_output: build/bin/tunneldeck-windows-amd64.exe
+            build_output: build/bin
 
           - os: macos-latest
             platform: darwin/universal
@@ -68,9 +68,11 @@ jobs:
           cd build/bin
           zip -r tunneldeck-macos-universal.zip TunnelDeck.app
 
-      - name: Rename Windows binary
+      - name: Rename Windows binaries
         if: matrix.os == 'windows-latest'
-        run: mv build/bin/tunneldeck.exe build/bin/tunneldeck-windows-amd64.exe
+        run: |
+          mv build/bin/tunneldeck.exe build/bin/tunneldeck-windows-amd64.exe
+          mv build/bin/tunneldeck-amd64-installer.exe build/bin/tunneldeck-windows-amd64-installer.exe
 
       - name: Rename Linux binary
         if: matrix.os == 'ubuntu-22.04'
@@ -104,6 +106,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             artifacts/windows-latest-build/tunneldeck-windows-amd64.exe
+            artifacts/windows-latest-build/tunneldeck-windows-amd64-installer.exe
             artifacts/macos-latest-build/tunneldeck-macos-universal.zip
             artifacts/ubuntu-22.04-build/tunneldeck-linux-amd64
             checksums.txt
