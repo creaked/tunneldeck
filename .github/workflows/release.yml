@@ -17,7 +17,7 @@ jobs:
           - os: windows-latest
             platform: windows/amd64
             artifact_name: tunneldeck-windows-amd64.exe
-            build_output: build/bin/tunneldeck.exe
+            build_output: build/bin/tunneldeck-windows-amd64.exe
 
           - os: macos-latest
             platform: darwin/universal
@@ -67,6 +67,10 @@ jobs:
         run: |
           cd build/bin
           zip -r tunneldeck-macos-universal.zip TunnelDeck.app
+
+      - name: Rename Windows binary
+        if: matrix.os == 'windows-latest'
+        run: mv build/bin/tunneldeck.exe build/bin/tunneldeck-windows-amd64.exe
 
       - name: Rename Linux binary
         if: matrix.os == 'ubuntu-22.04'
