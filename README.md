@@ -125,7 +125,7 @@ Tunnels are stored as a plain JSON file at:
 - [x] Encrypted credential storage (Windows DPAPI / macOS Keychain / Linux AES-GCM)
 - [x] SSH jump host / bastion support
 - [x] Cross-platform builds & releases (GitHub Actions)
-- [ ] Auto-reconnect on tunnel drop
+- [x] Auto-reconnect on tunnel drop
 - [ ] Settings menu
 - [ ] Auto-start tunnel on launch
 - [ ] Import tunnels from `~/.ssh/config`

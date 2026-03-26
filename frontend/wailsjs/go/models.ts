@@ -49,6 +49,7 @@ export namespace main {
 	    active: boolean;
 	    error: string;
 	    uptime: string;
+	    reconnecting: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new TunnelStatus(source);
@@ -60,6 +61,7 @@ export namespace main {
 	        this.active = source["active"];
 	        this.error = source["error"];
 	        this.uptime = source["uptime"];
+	        this.reconnecting = source["reconnecting"];
 	    }
 	}
 

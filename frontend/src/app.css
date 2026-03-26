@@ -131,7 +131,17 @@ body {
 }
 
 .status-dot.off { background: var(--bg4); }
+.status-dot.reconnecting {
+  background: var(--yellow);
+  box-shadow: 0 0 6px var(--yellow);
+  animation: pulse-yellow 1.2s ease-in-out infinite;
+}
 .status-dot.error { background: var(--red); }
+
+@keyframes pulse-yellow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
 
 .tunnel-item-info { flex: 1; min-width: 0; }
 
@@ -217,6 +227,11 @@ body {
 }
 
 .detail-status-dot.off { background: var(--bg4); }
+.detail-status-dot.reconnecting {
+  background: var(--yellow);
+  box-shadow: 0 0 8px var(--yellow);
+  animation: pulse-yellow 1.2s ease-in-out infinite;
+}
 
 .detail-name {
   font-size: 22px;
@@ -284,6 +299,7 @@ body {
 .badge-green { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
 .badge-gray { background: var(--bg3); color: var(--text3); border: 1px solid var(--border); }
 .badge-blue { background: rgba(88,166,255,0.15); color: var(--blue); border: 1px solid rgba(88,166,255,0.3); }
+.badge-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.3); }
 
 /* Forward arrow visual */
 .forward-vis {

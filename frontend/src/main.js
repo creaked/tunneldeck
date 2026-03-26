@@ -203,7 +203,7 @@ function renderSidebar() {
   }
   el.innerHTML = tunnels.map(t => {
     const s = statuses[t.id] || {};
-    const dotClass = s.active ? 'on' : 'off';
+    const dotClass = s.active ? (s.reconnecting ? 'reconnecting' : 'on') : 'off';
     const sel = t.id === selectedId ? 'selected' : '';
     return `
       <div class="tunnel-item ${sel}" data-id="${t.id}" onclick="selectTunnel('${t.id}')">
@@ -231,6 +231,8 @@ function renderMain() {
   if (!t) { selectedId = null; renderMain(); return; }
   const s = statuses[t.id] || {};
 
+  const dotClass = s.active ? (s.reconnecting ? 'reconnecting' : 'on') : 'off';
+
   const bastionHop = t.bastionHost ? `
         <div class="forward-box">
           <div class="forward-box-label">Bastion</div>
@@ -242,7 +244,7 @@ function renderMain() {
     <div class="detail">
       <div class="detail-header">
         <div class="detail-title-group">
-          <div class="detail-status-dot ${s.active ? 'on' : 'off'}"></div>
+          <div class="detail-status-dot ${dotClass}"></div>
           <div>
             <div class="detail-name">${esc(t.name)}</div>
             ${s.active ? `<div class="detail-uptime">↑ ${s.uptime || '0s'}</div>` : ''}
@@ -307,7 +309,9 @@ function renderMain() {
             <span class="card-label">State</span>
             <span class="card-value">
               ${s.active
-                ? '<span class="badge badge-green">● Connected</span>'
+                ? (s.reconnecting
+                    ? '<span class="badge badge-yellow">↻ Reconnecting</span>'
+                    : '<span class="badge badge-green">● Connected</span>')
                 : '<span class="badge badge-gray">○ Stopped</span>'
               }
             </span>

@@ -33,19 +33,23 @@ type TunnelConfig struct {
 }
 
 type TunnelStatus struct {
-	ID     string `json:"id"`
-	Active bool   `json:"active"`
-	Error  string `json:"error"`
-	Uptime string `json:"uptime"`
+	ID           string `json:"id"`
+	Active       bool   `json:"active"`
+	Error        string `json:"error"`
+	Uptime       string `json:"uptime"`
+	Reconnecting bool   `json:"reconnecting"`
 }
 
 type activeTunnel struct {
-	config        TunnelConfig
-	client        *ssh.Client
+	config       TunnelConfig
+	clientMu     sync.RWMutex
+	client       *ssh.Client
 	bastionClient *ssh.Client
-	listener      net.Listener
-	startTime     time.Time
-	done          chan struct{}
+	listener     net.Listener
+	startTime    time.Time
+	done         chan struct{}
+	reconnecting bool
+	lastError    string
 }
 
 type TunnelManager struct {
@@ -72,17 +76,12 @@ func buildAuthMethods(authType, password, keyPath string) ([]ssh.AuthMethod, err
 	return []ssh.AuthMethod{ssh.Password(password)}, nil
 }
 
-func (tm *TunnelManager) Start(cfg TunnelConfig) error {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	if _, exists := tm.active[cfg.ID]; exists {
-		return fmt.Errorf("tunnel %s is already running", cfg.ID)
-	}
-
+// dialSSH establishes an SSH connection (optionally via bastion) and returns
+// the target client and an optional bastion client.
+func dialSSH(cfg TunnelConfig) (*ssh.Client, *ssh.Client, error) {
 	authMethods, err := buildAuthMethods(cfg.AuthType, cfg.Password, cfg.KeyPath)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	sshConfig := &ssh.ClientConfig{
@@ -94,9 +93,6 @@ func (tm *TunnelManager) Start(cfg TunnelConfig) error {
 
 	addr := fmt.Sprintf("%s:%d", cfg.SSHHost, cfg.SSHPort)
 
-	var client *ssh.Client
-	var bastionClient *ssh.Client
-
 	if cfg.BastionHost != "" {
 		bastionPort := cfg.BastionPort
 		if bastionPort == 0 {
@@ -104,7 +100,7 @@ func (tm *TunnelManager) Start(cfg TunnelConfig) error {
 		}
 		bastionAuth, berr := buildAuthMethods(cfg.BastionAuthType, cfg.BastionPassword, cfg.BastionKeyPath)
 		if berr != nil {
-			return berr
+			return nil, nil, berr
 		}
 		bastionCfg := &ssh.ClientConfig{
 			User:            cfg.BastionUser,
@@ -113,27 +109,42 @@ func (tm *TunnelManager) Start(cfg TunnelConfig) error {
 			Timeout:         10 * time.Second,
 		}
 		bastionAddr := fmt.Sprintf("%s:%d", cfg.BastionHost, bastionPort)
-		bastionClient, berr = ssh.Dial("tcp", bastionAddr, bastionCfg)
+		bastionClient, berr := ssh.Dial("tcp", bastionAddr, bastionCfg)
 		if berr != nil {
-			return fmt.Errorf("bastion dial failed: %w", berr)
+			return nil, nil, fmt.Errorf("bastion dial failed: %w", berr)
 		}
 		conn, berr := bastionClient.Dial("tcp", addr)
 		if berr != nil {
 			bastionClient.Close()
-			return fmt.Errorf("bastion to SSH host failed: %w", berr)
+			return nil, nil, fmt.Errorf("bastion to SSH host failed: %w", berr)
 		}
 		ncc, chans, reqs, berr := ssh.NewClientConn(conn, addr, sshConfig)
 		if berr != nil {
 			conn.Close()
 			bastionClient.Close()
-			return fmt.Errorf("SSH handshake via bastion failed: %w", berr)
+			return nil, nil, fmt.Errorf("SSH handshake via bastion failed: %w", berr)
 		}
-		client = ssh.NewClient(ncc, chans, reqs)
-	} else {
-		client, err = ssh.Dial("tcp", addr, sshConfig)
-		if err != nil {
-			return fmt.Errorf("SSH dial failed: %w", err)
-		}
+		return ssh.NewClient(ncc, chans, reqs), bastionClient, nil
+	}
+
+	client, err := ssh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("SSH dial failed: %w", err)
+	}
+	return client, nil, nil
+}
+
+func (tm *TunnelManager) Start(cfg TunnelConfig) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	if _, exists := tm.active[cfg.ID]; exists {
+		return fmt.Errorf("tunnel %s is already running", cfg.ID)
+	}
+
+	client, bastionClient, err := dialSSH(cfg)
+	if err != nil {
+		return err
 	}
 
 	localAddr := fmt.Sprintf("127.0.0.1:%d", cfg.LocalPort)
@@ -156,24 +167,98 @@ func (tm *TunnelManager) Start(cfg TunnelConfig) error {
 	}
 	tm.active[cfg.ID] = at
 	go at.accept()
+	go at.monitor()
 	return nil
 }
 
-func (at *activeTunnel) accept() {
+func (at *activeTunnel) getClient() *ssh.Client {
+	at.clientMu.RLock()
+	defer at.clientMu.RUnlock()
+	return at.client
+}
+
+// monitor sends SSH keepalives every 15 seconds and reconnects on failure.
+// It is the sole owner of the SSH client lifecycle after Start() returns.
+func (at *activeTunnel) monitor() {
 	defer func() {
-		at.listener.Close()
-		at.client.Close()
+		at.clientMu.Lock()
+		if at.client != nil {
+			at.client.Close()
+		}
 		if at.bastionClient != nil {
 			at.bastionClient.Close()
 		}
+		at.clientMu.Unlock()
 	}()
+
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-at.done:
+			return
+		case <-ticker.C:
+			at.clientMu.RLock()
+			client := at.client
+			at.clientMu.RUnlock()
+
+			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+			if err != nil {
+				at.reconnect()
+			}
+		}
+	}
+}
+
+// reconnect closes the dead SSH connection and redials with exponential backoff.
+func (at *activeTunnel) reconnect() {
+	at.clientMu.Lock()
+	at.reconnecting = true
+	if at.client != nil {
+		at.client.Close()
+		at.client = nil
+	}
+	if at.bastionClient != nil {
+		at.bastionClient.Close()
+		at.bastionClient = nil
+	}
+	at.clientMu.Unlock()
+
+	backoff := 2 * time.Second
+	for {
+		select {
+		case <-at.done:
+			return
+		case <-time.After(backoff):
+		}
+
+		client, bastionClient, err := dialSSH(at.config)
+		if err != nil {
+			at.clientMu.Lock()
+			at.lastError = err.Error()
+			at.clientMu.Unlock()
+			if backoff < 30*time.Second {
+				backoff *= 2
+			}
+			continue
+		}
+
+		at.clientMu.Lock()
+		at.client = client
+		at.bastionClient = bastionClient
+		at.reconnecting = false
+		at.lastError = ""
+		at.clientMu.Unlock()
+		return
+	}
+}
+
+func (at *activeTunnel) accept() {
+	defer at.listener.Close()
 	for {
 		conn, err := at.listener.Accept()
 		if err != nil {
-			select {
-			case <-at.done:
-			default:
-			}
 			return
 		}
 		go at.forward(conn)
@@ -182,8 +267,12 @@ func (at *activeTunnel) accept() {
 
 func (at *activeTunnel) forward(local net.Conn) {
 	defer local.Close()
+	client := at.getClient()
+	if client == nil {
+		return
+	}
 	remoteAddr := fmt.Sprintf("%s:%d", at.config.RemoteHost, at.config.RemotePort)
-	remote, err := at.client.Dial("tcp", remoteAddr)
+	remote, err := client.Dial("tcp", remoteAddr)
 	if err != nil {
 		return
 	}
@@ -203,10 +292,6 @@ func (tm *TunnelManager) Stop(id string) error {
 	}
 	close(at.done)
 	at.listener.Close()
-	at.client.Close()
-	if at.bastionClient != nil {
-		at.bastionClient.Close()
-	}
 	delete(tm.active, id)
 	return nil
 }
@@ -225,10 +310,16 @@ func (tm *TunnelManager) GetStatus(id string) TunnelStatus {
 	if !exists {
 		return TunnelStatus{ID: id, Active: false}
 	}
+	at.clientMu.RLock()
+	reconnecting := at.reconnecting
+	lastError := at.lastError
+	at.clientMu.RUnlock()
 	return TunnelStatus{
-		ID:     id,
-		Active: true,
-		Uptime: time.Since(at.startTime).Round(time.Second).String(),
+		ID:           id,
+		Active:       true,
+		Uptime:       time.Since(at.startTime).Round(time.Second).String(),
+		Reconnecting: reconnecting,
+		Error:        lastError,
 	}
 }
 
@@ -246,10 +337,6 @@ func (tm *TunnelManager) StopAll() {
 	for id, at := range tm.active {
 		close(at.done)
 		at.listener.Close()
-		at.client.Close()
-		if at.bastionClient != nil {
-			at.bastionClient.Close()
-		}
 		delete(tm.active, id)
 	}
 }
