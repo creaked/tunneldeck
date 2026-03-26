@@ -54,6 +54,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
 
+      - name: Install NSIS
+        if: matrix.os == 'windows-latest'
+        run: choco install nsis --no-progress -y
+
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
         run: wails build -platform ${{ matrix.platform }} -nsis
