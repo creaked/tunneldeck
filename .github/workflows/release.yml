@@ -68,6 +68,10 @@ jobs:
           cd build/bin
           zip -r tunneldeck-macos-universal.zip TunnelDeck.app
 
+      - name: List build output (debug)
+        if: matrix.os == 'windows-latest'
+        run: Get-ChildItem build/bin
+
       - name: Rename Windows binaries
         if: matrix.os == 'windows-latest'
         run: |
