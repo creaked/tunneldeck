@@ -221,7 +221,7 @@ func (at *activeTunnel) monitor(tm *TunnelManager, keepaliveSeconds int) {
 			client := at.client
 			at.clientMu.RUnlock()
 
-			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+			_, _, err := client.SendRequest("keepalive@openssh.com", false, nil)
 			if err != nil && tm.getSettings().AutoReconnect {
 				at.reconnect()
 			}
